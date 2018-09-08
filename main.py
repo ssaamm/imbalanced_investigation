@@ -1,13 +1,19 @@
-import os
-import multiprocessing as mp
 import itertools as it
+import multiprocessing as mp
+import os
 
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold
-from sklearn.preprocessing import StandardScaler
-from sklearn import linear_model as lm
 import sklearn.metrics as mx
 from imblearn.combine import SMOTEENN, SMOTETomek
+from imblearn.over_sampling import SMOTE, ADASYN, RandomOverSampler
+from sklearn import linear_model as lm
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
+from sklearn.model_selection import StratifiedKFold
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 from tqdm import tqdm
 
 import common
@@ -37,7 +43,7 @@ def evaluate_clf(df, train_ndx, test_ndx, features, target, clfs, resamplers, da
         y_pred = clf.predict(Xp_test)
 
         all_results.append({
-            'dataset': dataset_name,
+            'dataset': dataset_name[:-len('.csv')],
             'clf': clf.__class__.__name__,
             'resampler': resampler.__name__ if resampler else 'None',
             'f1': mx.f1_score(y_test, y_pred),
@@ -49,7 +55,7 @@ if __name__ == '__main__':
     targets = common.get_tracker()
     rows = []
 
-    # p = mp.Pool()
+    p = mp.Pool()
     futures = []
     for dataset_name, target in targets.items():
         df = pd.read_csv(os.path.join(common.DATASETS_DIR, dataset_name))
@@ -60,18 +66,27 @@ if __name__ == '__main__':
         features = [c for c in df if c != target]
 
         skf = StratifiedKFold(n_splits=10)
-        resamplers = (None, SMOTEENN, SMOTETomek)
-        clfs = (lm.LogisticRegression(solver='lbfgs'),)
+        resamplers = (None, SMOTEENN, SMOTETomek, SMOTE, ADASYN, RandomOverSampler)
+        clfs = (
+            lm.LogisticRegression(solver='lbfgs'),
+            lm.RidgeClassifier(),
+            GradientBoostingClassifier(),
+            KNeighborsClassifier(3),
+            SVC(kernel="linear", C=0.025),
+            DecisionTreeClassifier(max_depth=5),
+            RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1),
+            AdaBoostClassifier(),
+            GaussianNB(),
+        )
         for train, test in skf.split(df[features], df[target]):
-            evaluate_clf(df, train, test, features=features, target=target, clfs=clfs, resamplers=resamplers, dataset_name=dataset_name)
-            # futures.append(p.apply_async(evaluate_clf, (df, train, test),
-            #                              kwds=dict(features=features, target=target,
-            #                                        clfs=[lm.LogisticRegression(solver='lbfgs')],
-            #                                        resamplers=resamplers,
-            #                                        dataset_name=dataset_name,)))
+            futures.append(p.apply_async(evaluate_clf, (df, train, test),
+                                         kwds=dict(features=features, target=target,
+                                                   clfs=clfs,
+                                                   resamplers=resamplers,
+                                                   dataset_name=dataset_name,)))
     rows = []
     for f in tqdm(futures):
-        rows.append(f.get())
-
+        rows.extend(f.get())
     p.close()
 
+    pd.DataFrame(rows).to_csv('scores.csv', index=False)
