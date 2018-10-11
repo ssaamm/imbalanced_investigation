@@ -6,6 +6,7 @@ import pandas as pd
 import sklearn.metrics as mx
 from imblearn.combine import SMOTEENN, SMOTETomek
 from imblearn.over_sampling import SMOTE, ADASYN, RandomOverSampler
+from imblearn.under_sampling.prototype_selection import RandomUnderSampler, TomekLinks, OneSidedSelection
 from sklearn import linear_model as lm
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
 from sklearn.model_selection import StratifiedKFold
@@ -41,12 +42,14 @@ def evaluate_clf(df, train_ndx, test_ndx, features, target, clfs, resamplers, da
 
         clf.fit(Xp_train, y_train)
         y_pred = clf.predict(Xp_test)
+        # y_score = clf.predict_proba(Xp_test)[:, 0]
 
         all_results.append({
             'dataset': dataset_name[:-len('.csv')],
             'clf': clf.__class__.__name__,
             'resampler': resampler.__name__ if resampler else 'None',
             'f1': mx.f1_score(y_test, y_pred),
+            # 'auc': mx.roc_auc_score(y_test, y_score),
         })
 
     return all_results
@@ -55,7 +58,7 @@ if __name__ == '__main__':
     targets = common.get_tracker()
     rows = []
 
-    p = mp.Pool()
+    p = mp.Pool(mp.cpu_count() - 1)
     futures = []
     for dataset_name, target in targets.items():
         df = pd.read_csv(os.path.join(common.DATASETS_DIR, dataset_name))
@@ -66,7 +69,7 @@ if __name__ == '__main__':
         features = [c for c in df if c != target]
 
         skf = StratifiedKFold(n_splits=10)
-        resamplers = (None, SMOTEENN, SMOTETomek, SMOTE, ADASYN, RandomOverSampler)
+        resamplers = (None, SMOTEENN, SMOTETomek, SMOTE, ADASYN, RandomOverSampler, RandomUnderSampler, TomekLinks, OneSidedSelection)
         clfs = (
             lm.LogisticRegression(solver='lbfgs'),
             lm.RidgeClassifier(),
